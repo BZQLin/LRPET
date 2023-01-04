@@ -77,6 +77,18 @@ parser.add_argument('--prun_goal', type=float, default=0.80,
                     help="sigma be pruned")
 parser.add_argument('--train', action='store_true', default=True)
 
+parser.add_argument('--pretrained',
+                    dest='pretrained',
+                    help='whether use pretrained model',
+                    default=False,
+                    type=bool)
+parser.add_argument('--checkpoint',
+                    dest='checkpoint',
+                    help='checkpoint dir',
+                    default=None,
+                    type=str)
+parser.add_argument('--use_bn', action='store_false', default=True)
+
 args = parser.parse_args()
 print(args)
 def seed_torch(seed=1):
@@ -446,61 +458,59 @@ if args.train:
     '''
     ResNet-56     --prun_goal 0.80  -->  reduction of FLOPs 79.1% (after training 79.1%)
                   --prun_goal 0.54  -->  reduction of FLOPs 51.0% (after training 51.0%)
+
+                  --prun_goal 0.57 * 
+                  --prun_goal 0.70 * 
+                  --prun_goal 0.80 * 
     ResNet-110    --prun_goal 0.62  -->  reduction of FLOPs 58.2% (after training 67.6%)
                   --prun_goal 0.70  -->  reduction of FLOPs 69.3% (after training 77.5%)
+
+                  --prun_goal 0.79  -->  0.785 *
+                  --prun_goal 0.65  -->  0.629 * 
     GoogLeNet     --prun_goal 0.65  -->  reduction of FLOPs 57.5% (after training 57.5%)
                   --prun_goal 0.76  -->  reduction of FLOPs 70.9% (after training 70.9%)
+                  --prun_goal 0.68  -->  reduction of FLOPs 0.61 * 
+                  --prun_goal 0.60  -->  reduction of FLOPs 0.51 * 
+
     '''
-    
     prune_index_list = default_parameters
-    # print(default_parameters)
-
-    ## 2. Use manual design parameters to perform singular value pruning. Use the following prune_index_list directly
-    '''
-    ## ResNet-56  --  reduction of FLOPs 78.0% (after training 82.4%)
-    # prune_index_list = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
-    
-    ## VGG16_bn  --  reduction of FLOPs 61.0% (after training 61.0%)
-    # prune_index_list = [14, 36, 70, 70, 80, 80, 80, 105, 105, 105, 105, 105, 105]
-    ## VGG16_bn  --  reduction of FLOPs 66.2% (after training 66.2%)
-    # prune_index_list = [18, 42, 60, 60, 65, 65, 65, 70, 70, 70, 70, 70, 70]
-    ## VGG16_bn  --  reduction of FLOPs 79.2% (after training 79.2%)
-    # prune_index_list = [18, 42, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]
-    '''
-
     ## 3. Use searched parameters to perform singular value pruning. Use the following prune_index_list directly
     '''
     ## ResNet-56-S   --  reduction of FLOPs 78.0% (after training 80.8%)
     # prune_ratio_list = [6, 6, 3, 5, 2, 3, 4, 4, 2, 3, 6, 1, 2, 4, 4, 5, 2, 1, 2, 10, 6, 2, 6, 6, 7, 9, 1, 5, 4, 11, 6, 2, 2, 12, 12, 5, 4, 16, 6, 17, 23, 11, 3, 11, 17, 4, 12, 15, 16, 6, 7, 6, 24, 18, 15]
     '''
-    # prune_index_list = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
-    
-    # prune_index_list = [18, 42, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]
     model_train = model_full
+    if args.model=='vgg16_bn':
+        if prune_index_list[0] <18: # 27*2/3
+            prune_index_list[0] = 18
+        for i in range(1, len(prune_index_list)):
+            if prune_index_list[i]<43:
+                prune_index_list[i]=43
 
-    # test(0,model_train)
-
-    
+    print(prune_index_list)
     ratio_print(model_train,prune_index_list)
-
-
     dummy_input = torch.randn(1, 3, 32, 32)
     flops, params, results = count_flops_params(model_full, dummy_input)
-    
 
     for epoch in range(start_epoch, args.epochs):
         start_time = time.time()
         model_train = train_full(epoch, model_train, optimizer_full)
-        print('energy transfer')
-        model_train = fcConvWeightReguViaSVB_redu(model_train, epoch, prune_index_list)
+        if args.use_bn:
+            # if epoch%2==0 and epoch!=0:
+            print('energy transfer use-bn')
+            model_train = fcConvWeightReguViaSVB_redu(model_train, epoch, prune_index_list)
+        data_time = time.time() - start_time
+        print('time: %s', data_time)
+
+        print(time.strftime("%Y-%m-%d--%H:%M:%S", time.localtime()))
 
         if epoch == 399:
             print('==> 399')
             change_test_guss(model_train, '399', prune_index_list)
-        data_time = time.time() - start_time
-        print('time: %s', data_time)
+
     print('==> exchange to SVD')
     model_test = channel_decompose_guss(model_in=model_train, prune_index_list=prune_index_list)
+    test(0,model_test)
     dummy_input = torch.randn(1, 3, 32, 32)
     flops_svd, params_svd, results = count_flops_params(model_test, dummy_input)
     print('pruning ratio param：', (1-(params_svd / params)))
